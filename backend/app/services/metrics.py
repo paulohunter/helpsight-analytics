@@ -1,5 +1,16 @@
 import pandas as pd
 import io
+import os
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
+INSIGHTS_MODE = os.getenv("INSIGHTS_MODE", "local").lower()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+if INSIGHTS_MODE == "ai" and GEMINI_API_KEY:
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
 
 def time_to_hours(time_str):
     if pd.isna(time_str) or time_str == "":
@@ -88,19 +99,46 @@ def _compute_metrics_for_df(df, prev_df=None):
 
     # System Insights
     insights = []
-    if t_mom > 15:
-        insights.append({"type": "warning", "message": f"Volume de tickets subiu {t_mom}% em relação ao período anterior."})
-    if sla_perc >= 95:
-        insights.append({"type": "positive", "message": f"SLA excepcional ({round(sla_perc, 1)}%), acima da meta operacional."})
-    elif sla_perc < 80 and total_tickets > 0:
-        insights.append({"type": "negative", "message": f"Atenção: SLA crítico ({round(sla_perc, 1)}%). Priorize a fila de Backlog."})
-    if ttr_mom > 10:
-        insights.append({"type": "negative", "message": f"O TTR (Tempo de Resolução) subiu {ttr_mom}%, indicando gargalos na operação."})
-    elif ttr_mom < -10:
-        insights.append({"type": "positive", "message": f"Sua equipe está resolvendo tickets {abs(ttr_mom)}% mais rápido!"})
     
+    # AI Mode Strategy
+    if INSIGHTS_MODE == 'ai' and GEMINI_API_KEY:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = f"""
+Você é um assistente de inteligência artificial de um sistema de Helpdesk (HelpSight Analytics).
+Analise as seguintes métricas de suporte deste mês vs o mês anterior e retorne EXATAMENTE 3 insights curtos para a equipe de suporte em formato JSON válido.
+Métricas: Volume MoM: {t_mom}%, Backlog MoM: {open_mom}%, SLA: {round(sla_perc, 1)}%, Variação SLA: {sla_mom}%, Variação TTR: {ttr_mom}%, CSAT: {round(csat, 1)}
+
+Regras e formato: 
+- O JSON precisa ser uma lista pura: [{{"type": "tipo", "message": "msg"}}] (não inclua markdown como ```json).
+- "type" deve ser estritamente: "positive", "negative", "neutral", ou "warning".
+- "message" deve ser um texto conciso e analítico em português (max 120 chars).
+"""
+            response = model.generate_content(prompt)
+            response_text = response.text.replace("```json", "").replace("```", "").strip()
+            ai_insights = json.loads(response_text)
+            
+            if isinstance(ai_insights, list) and len(ai_insights) > 0 and 'type' in ai_insights[0]:
+                insights = ai_insights
+        except Exception as e:
+            print(f"Gemini AI Insight Error: {e}")
+            insights = []
+
+    # Local fallback strategy se a IA estiver desativada ou falhar
     if len(insights) == 0:
-        insights.append({"type": "neutral", "message": "Operação estável com variações dentro da normalidade estatística."})
+        if t_mom > 15:
+            insights.append({"type": "warning", "message": f"Volume de tickets subiu {t_mom}% em relação ao período anterior."})
+        if sla_perc >= 95:
+            insights.append({"type": "positive", "message": f"SLA excepcional ({round(sla_perc, 1)}%), acima da meta operacional."})
+        elif sla_perc < 80 and total_tickets > 0:
+            insights.append({"type": "negative", "message": f"Atenção: SLA crítico ({round(sla_perc, 1)}%). Priorize a fila de Backlog."})
+        if ttr_mom > 10:
+            insights.append({"type": "negative", "message": f"O TTR (Tempo de Resolução) subiu {ttr_mom}%, indicando gargalos na operação."})
+        elif ttr_mom < -10:
+            insights.append({"type": "positive", "message": f"Sua equipe está resolvendo tickets {abs(ttr_mom)}% mais rápido!"})
+        
+        if len(insights) == 0:
+            insights.append({"type": "neutral", "message": "Operação estável com variações dentro da normalidade estatística."})
 
     time_perf = []
     if 'Agente' in df.columns:

@@ -34,8 +34,10 @@ Para rodar a aplicação localmente:
 4.  Configure a chave de API do Google AI Studio para o gerador de insights:
     Acesse o [Google AI Studio](https://aistudio.google.com/app/apikey), gere a sua chave (Create API key) e crie um arquivo `.env` na raiz da pasta `backend/`:
     ```env
+    INSIGHTS_MODE=ai
     GEMINI_API_KEY=sua_chave_aqui
     ```
+    *(Dica: se quiser testar sem inteligência artificial, basta alterar para `INSIGHTS_MODE=local` e o sistema usará os algoritmos matemáticos geradores).*
 
 5.  Inicie o servidor local FastAPI:
     ```bash

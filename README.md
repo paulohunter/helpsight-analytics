@@ -24,10 +24,12 @@ Para rodar este monorepo perfeitamente na sua máquina, você vai precisar abrir
 Os insights dinâmicos do painel são movidos a IA generativa. Para que funcionem:
 1. Acesse o [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Faça login com a sua conta Google e clique em **Create API key**.
-3. Crie um arquivo `.env` dentro da pasta `backend/` e insira a chave:
+3. Crie um arquivo `.env` dentro da pasta `backend/` e insira as configurações:
    ```env
+   INSIGHTS_MODE=ai
    GEMINI_API_KEY=sua_chave_aqui
    ```
+   *(Nota: Se você não quiser usar a Inteligência Artificial, pode alterar para `INSIGHTS_MODE=local` ou omitir a variável, e o sistema usará o motor matemático embarcado).*
 
 ### 1- Iniciando o Backend API (Python)
 Em um terminal, navegue para o *backend* local:
