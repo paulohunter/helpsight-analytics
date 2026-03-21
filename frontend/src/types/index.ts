@@ -30,6 +30,19 @@ export interface SystemInsight {
   message: string;
 }
 
+export interface RequesterRank {
+  name: string;
+  email: string;
+  count: number;
+  mom: number;
+  trend: 'up' | 'down' | 'neutral';
+}
+
+export interface KeywordRankingItem {
+  keyword: string;
+  count: number;
+}
+
 export interface MetricsPayload {
   gerais: GeraisMetrics;
   classificacao: {
@@ -41,7 +54,10 @@ export interface MetricsPayload {
     tipos: { name: string; value: number }[];
   };
   performance: AgentPerformance[];
+  requesters: RequesterRank[];
   insights: SystemInsight[];
+  keywordRanking: KeywordRankingItem[];
+  keywordAnalysis: string;
 }
 
 export interface MetricsResponse {

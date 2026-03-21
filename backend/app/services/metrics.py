@@ -2,6 +2,7 @@ import pandas as pd
 import io
 import os
 import json
+import re
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,11 +38,11 @@ def get_trend(mom, inverted=False):
 def parse_csat(val):
     if pd.isna(val): return None
     v = str(val).lower().strip()
-    if v in ['5', 'extremamente satisfeito', 'muito satisfeito', 'extremely satisfied']: return 5.0
+    if v in ['5', 'extremamente satisfeito', 'muito satisfeito', 'extremely satisfied', 'ótimo', 'otimo']: return 5.0
     if v in ['4', 'satisfeito', 'satisfied']: return 4.0
     if v in ['3', 'neutro', 'neutral', 'regular']: return 3.0
     if v in ['2', 'insatisfeito', 'dissatisfied']: return 2.0
-    if v in ['1', 'extremamente insatisfeito', 'muito insatisfeito', 'extremely dissatisfied']: return 1.0
+    if v in ['1', 'extremamente insatisfeito', 'muito insatisfeito', 'extremely dissatisfied', 'negativo']: return 1.0
     try:
         n = float(val)
         if 1.0 <= n <= 5.0: return n
@@ -103,7 +104,7 @@ def _compute_metrics_for_df(df, prev_df=None):
     # AI Mode Strategy
     if INSIGHTS_MODE == 'ai' and GEMINI_API_KEY:
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             prompt = f"""
 Você é um assistente de inteligência artificial de um sistema de Helpdesk (HelpSight Analytics).
 Analise as seguintes métricas de suporte deste mês vs o mês anterior e retorne EXATAMENTE 3 insights curtos para a equipe de suporte em formato JSON válido.
@@ -177,6 +178,73 @@ Regras e formato:
                 "trend": get_trend(a_mom)
             })
     time_perf = sorted(time_perf, key=lambda x: x['resolved'], reverse=True)[:10]
+    requester_rank = []
+    if 'Nome completo' in df.columns:
+        email_col = next((c for c in df.columns if 'mail' in str(c).lower()), None)
+        curr_counts = df['Nome completo'].value_counts()
+        prev_counts = prev_df['Nome completo'].value_counts() if prev_df is not None else pd.Series()
+        
+        top_curr = curr_counts.head(50)
+        
+        for name, count in top_curr.items():
+            email = ""
+            if email_col:
+                user_emails = df[df['Nome completo'] == name][email_col].dropna()
+                if not user_emails.empty:
+                    email = str(user_emails.iloc[0])
+            
+            p_count = prev_counts.get(name, 0)
+            mom = calc_mom(count, p_count)
+            
+            requester_rank.append({
+                "name": str(name),
+                "email": email,
+                "count": int(count),
+                "mom": mom,
+                "trend": 'up' if mom > 1 else 'down' if mom < -1 else 'neutral'
+            })
+
+    # --- KEYWORD EXTRACION & AI SCENARIO ANALYSIS ---
+    keyword_ranking = []
+    keyword_analysis = "Análise por IA desativada ou sem dados suficientes."
+    
+    # Definir domínios e procurar em colunas de texto (assunto/descrição)
+    search_keywords = ["auvo", "mega", "lpt", "bônus", "bonus", "metadados", "enexe", "approvals", "office", "clickdash", "mla", "aprovo", "celular", "celulares"]
+    keyword_counts = {k: 0 for k in search_keywords}
+    
+    text_cols = [c for c in df.columns if str(c).lower() in ['assunto', 'descrição', 'description', 'titulo', 'subject']]
+    # Fallback to string columns if none specifically named
+    if not text_cols:
+        text_cols = [c for c in df.columns if df[c].dtype == 'object']
+        
+    for col in text_cols:
+        text_series = df[col].astype(str).str.lower()
+        for kw in search_keywords:
+            pattern = r'\b' + re.escape(kw) + r'\b'
+            counts = text_series.str.contains(pattern, regex=True, na=False).sum()
+            keyword_counts[kw] += int(counts)
+            
+    if "bonus" in keyword_counts and "bônus" in keyword_counts:
+        keyword_counts["bônus"] += keyword_counts.pop("bonus")
+        
+    if "celulares" in keyword_counts and "celular" in keyword_counts:
+        keyword_counts["celular"] += keyword_counts.pop("celulares")
+        
+    # Build Top 10
+    keyword_ranking = [{"keyword": k.upper(), "count": v} for k, v in keyword_counts.items() if v > 0]
+    keyword_ranking = sorted(keyword_ranking, key=lambda x: x['count'], reverse=True)[:10]
+
+    if INSIGHTS_MODE == 'ai' and GEMINI_API_KEY and len(keyword_ranking) > 0:
+        try:
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            rank_str = ", ".join([f"{item['keyword']} ({item['count']} tickets)" for item in keyword_ranking])
+            prompt = f"Analise profundamente este ranking quantitativo de chamados de TI: {rank_str}. Realize uma análise detalhada do cenário operacional, correlacionando os termos para identificar gargalos reais, prováveis causas raízes de chamados repetitivos e proponha planos de ação específicos urgentes, processos de automação, documentação ou melhorias na infraestrutura e treinamento para sanar estruturalmente esses volumes elevados."
+            resp = model.generate_content(prompt)
+            if resp and resp.text:
+                keyword_analysis = resp.text
+        except Exception as e:
+            print(f"Gemini Keyword Error: {e}")
+            keyword_analysis = "Erro ao processar a análise inteligente com Gemini."
 
     return {
         "gerais": {
@@ -192,15 +260,18 @@ Regras e formato:
             "categorias": get_top('Categoria'),
             "subcategorias": get_top('Subcategoria'),
             "areaAtuacao": get_top('Areá de atuação'),
-            "localizacao": get_top('Local de atuação'),
-            "ufs": get_top('UF'),
+            "localizacao": get_top('Local de atuação', top_n=100),
+            "ufs": get_top('UF', top_n=100),
             "tipos": get_top('Tipo')
         },
         "performance": time_perf,
-        "insights": insights
+        "requesters": requester_rank,
+        "insights": insights,
+        "keywordRanking": keyword_ranking,
+        "keywordAnalysis": keyword_analysis
     }
 
-def process_freshdesk_csv(csv_bytes: bytes) -> dict:
+def process_freshdesk_csv(csv_bytes: bytes, start_date: str = None, end_date: str = None) -> dict:
     df = pd.read_csv(io.BytesIO(csv_bytes))
     df['Hora da criação'] = pd.to_datetime(df['Hora da criação'], errors='coerce')
     df['Hora da resolução'] = pd.to_datetime(df['Hora da resolução'], errors='coerce')
@@ -215,46 +286,91 @@ def process_freshdesk_csv(csv_bytes: bytes) -> dict:
     else:
         df['FRT_hours'] = 0.0
         
-    df['Mes_Criacao'] = df['Hora da criação'].dt.to_period('M').astype(str)
+    # --- Date Range Filter Logic ---
+    prev_df = None
+    if start_date and end_date:
+        d_start = pd.to_datetime(start_date)
+        d_end = pd.to_datetime(end_date)
+        
+        # Calculate prev_df for identical timeframe length backward
+        delta = d_end - d_start + pd.Timedelta(days=1)
+        prev_start = d_start - delta
+        prev_end = d_start - pd.Timedelta(seconds=1)
+        prev_mask = (df['Hora da criação'] >= prev_start) & (df['Hora da criação'] <= prev_end)
+        prev_df = df.loc[prev_mask]
+        
+        # Exact range filtering (inclusive)
+        mask = (df['Hora da criação'] >= d_start) & (df['Hora da criação'] <= d_end + pd.Timedelta(days=1, seconds=-1))
+        df = df.loc[mask].copy()
+        
+        df['Period_Group'] = df['Hora da criação'].apply(
+            lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else None
+        )
+        df['Period_Res_Group'] = df['Hora da resolução'].apply(
+            lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else None
+        )
+    else:
+        df['Period_Group'] = df['Hora da criação'].apply(
+            lambda x: x.to_period('M').strftime('%Y-%m') if pd.notna(x) else None
+        )
+        df['Period_Res_Group'] = df['Hora da resolução'].apply(
+            lambda x: x.to_period('M').strftime('%Y-%m') if pd.notna(x) else None
+        )
+
+    created_per_period = df['Period_Group'].value_counts().to_dict()
+    resolved_per_period = df['Period_Res_Group'].value_counts().to_dict()
     
-    created_per_month = df['Mes_Criacao'].value_counts().to_dict()
-    df['Mes_Resolucao'] = df['Hora da resolução'].dt.to_period('M').astype(str)
-    resolved_per_month = df['Mes_Resolucao'].value_counts().to_dict()
-    
-    all_months = sorted(list(set(created_per_month.keys()).union(set(resolved_per_month.keys()))))
+    if start_date and end_date:
+        date_range_idx = pd.date_range(start=pd.to_datetime(start_date), end=pd.to_datetime(end_date))
+        all_periods = [d.strftime('%Y-%m-%d') for d in date_range_idx]
+    else:
+        all_periods = sorted(list(set(created_per_period.keys()).union(set(resolved_per_period.keys()))))
+        
     backlog = []
     
-    for month in all_months:
-        if month == 'NaT': continue
-        month_df = df[df['Mes_Criacao'] == month]
-        m_total = len(month_df)
-        m_sla_met = month_df[month_df['Estado da resolução'] == 'Within SLA'].shape[0] if 'Estado da resolução' in month_df.columns else 0
-        m_sla = (m_sla_met / m_total * 100) if m_total > 0 else 0
-        backlog.append({
-            "month": month,
-            "created": int(created_per_month.get(month, 0)),
-            "resolved": int(resolved_per_month.get(month, 0)),
-            "sla": round(m_sla, 1)
-        })
+    for period in all_periods:
+        if period == 'NaT' or pd.isna(period): continue
+        period_df = df[df['Period_Group'] == period]
+        p_total = len(period_df)
+        p_sla_met = period_df[period_df['Estado da resolução'] == 'Within SLA'].shape[0] if 'Estado da resolução' in period_df.columns else 0
+        p_sla = (p_sla_met / p_total * 100) if p_total > 0 else 0
         
-    all_data = _compute_metrics_for_df(df)
+        c_count = int(created_per_period.get(period, 0))
+        r_count = int(resolved_per_period.get(period, 0))
+        
+        if c_count == 0 and r_count == 0:
+            continue
+            
+        backlog.append({
+            "period": period,
+            "created": c_count,
+            "resolved": r_count,
+            "sla": round(p_sla, 1) if p_total > 0 else None
+        })
+
+    # When start_date and end_date are provided, return all_data (which is now correctly filtered to range)
+    # But for compatibility with default load, calculate months_data if no dates provided.
+    all_data = _compute_metrics_for_df(df, prev_df=prev_df) if prev_df is not None else _compute_metrics_for_df(df)
     
     months_data = {}
-    for i, month in enumerate(all_months):
-        if month == 'NaT': continue
-        month_df = df[df['Mes_Criacao'] == month]
-        
-        prev_df = None
-        if i > 0:
-            prev_m = all_months[i-1]
-            if prev_m != 'NaT':
-                prev_df = df[df['Mes_Criacao'] == prev_m]
-                
-        months_data[month] = _compute_metrics_for_df(month_df, prev_df)
-        
+    available_months = []
+    if not (start_date and end_date):
+        for i, period in enumerate(all_periods):
+            if period == 'NaT': continue
+            period_df = df[df['Period_Group'] == period]
+            
+            p_df = None
+            if i > 0:
+                prev_p = all_periods[i-1]
+                if prev_p != 'NaT':
+                    p_df = df[df['Period_Group'] == prev_p]
+                    
+            months_data[period] = _compute_metrics_for_df(period_df, p_df)
+            available_months.append(period)
+
     return {
         "all": all_data,
         "months": months_data,
         "backlog": backlog,
-        "availableMonths": [m for m in all_months if m != 'NaT']
+        "availableMonths": available_months
     }

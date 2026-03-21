@@ -2,9 +2,11 @@ import { MetricsResponse } from "../types";
 
 const API_BASE_URL = "http://localhost:8000/api";
 
-export async function uploadCsvFile(file: File): Promise<MetricsResponse> {
+export async function uploadCsvFile(file: File, startDate?: string, endDate?: string): Promise<MetricsResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (startDate) formData.append("start_date", startDate);
+  if (endDate) formData.append("end_date", endDate);
 
   const response = await fetch(`${API_BASE_URL}/upload`, {
     method: "POST",

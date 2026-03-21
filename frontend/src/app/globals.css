@@ -108,7 +108,7 @@
     @apply border-border outline-ring/50;
   }
   body, html {
-    font-family: var(--font-geist-sans), "Geist Fallback", sans-serif;
+    font-family: var(--font-geist-sans), "Geist Fallback", "Geist Fallback", sans-serif;
     @apply bg-background text-foreground;
   }
 }

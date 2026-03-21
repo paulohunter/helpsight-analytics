@@ -6,6 +6,19 @@ interface LineChartProps {
 }
 
 export function DashboardLineChart({ title, data }: LineChartProps) {
+  const formatXAxis = (tickItem: string) => {
+    if (!tickItem) return '';
+    if (tickItem.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = tickItem.split('-');
+      return `${day}/${month}`;
+    }
+    if (tickItem.match(/^\d{4}-\d{2}$/)) {
+      const [year, month] = tickItem.split('-');
+      return `${month}/${year.slice(2)}`;
+    }
+    return tickItem;
+  };
+
   return (
     <div className="border border-white/5 rounded-2xl bg-card/50 backdrop-blur-md shadow-lg p-6 hover:shadow-xl transition-shadow duration-300 h-full flex flex-col group">
       <div className="flex items-center justify-between mb-6">
@@ -15,7 +28,7 @@ export function DashboardLineChart({ title, data }: LineChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           <RechartsLineChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted-foreground/10" vertical={false} />
-            <XAxis dataKey="month" tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} axisLine={false} tickLine={false} tickMargin={12} />
+            <XAxis dataKey="period" tickFormatter={formatXAxis} tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} axisLine={false} tickLine={false} tickMargin={12} />
             <YAxis yAxisId="left" tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} axisLine={false} tickLine={false} tickMargin={12} />
             <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} domain={[0, 100]} axisLine={false} tickLine={false} tickMargin={12} />
             
