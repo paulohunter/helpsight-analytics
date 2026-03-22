@@ -431,8 +431,6 @@ export default function Dashboard() {
               </div>
             </section>
 
-            </section>
-
           </div>
         )}
         
