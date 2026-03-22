@@ -1,6 +1,6 @@
 import { MetricsResponse } from "../types";
 
-const API_BASE_URL = "http://localhost:8000/api";
+const API_BASE_URL = `${process.env.NEXT_PUBLIC_API_URL}/api` || "http://localhost:8000/api";
 
 export async function uploadCsvFile(file: File, startDate?: string, endDate?: string): Promise<MetricsResponse> {
   const formData = new FormData();

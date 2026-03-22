@@ -431,8 +431,16 @@ export default function Dashboard() {
               </div>
             </section>
 
+            </section>
+
           </div>
         )}
+        
+        {/* FOOTER SECTION */}
+        <footer className="mt-12 py-6 border-t border-white/5 flex flex-col items-center justify-center gap-1 opacity-70 hover:opacity-100 transition-opacity">
+          <p className="text-sm text-muted-foreground">HelpSight Analytics &copy; {new Date().getFullYear()}</p>
+          <p className="text-xs text-muted-foreground/60 font-mono">v1.0.0</p>
+        </footer>
       </div>
       )}
     </div>

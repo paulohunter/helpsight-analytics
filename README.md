@@ -1,4 +1,5 @@
 # HelpSight Analytics
+**Versão: 1.0.0**
 
 ![HelpSight Analytics](frontend/public/favicon.ico)
 
